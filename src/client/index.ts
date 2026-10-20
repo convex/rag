@@ -740,12 +740,23 @@ export class RAG<
       paginationOpts: PaginationOptions;
       entryId: EntryId;
       order?: "desc" | "asc";
+      /**
+       * Include embeddings for reuse with `search` or `add` using the same
+       * embedding model and dimension. Defaults to false.
+       * Stored embeddings are normalized with importance weighting removed.
+       * Zero-importance embeddings are all zeros; for 4096 dimensions, the
+       * discarded last coordinate is returned as zero. Pending chunks return
+       * their original embeddings.
+       * Use smaller pages when including these additional reads and bytes.
+       */
+      includeEmbeddings?: boolean;
     },
   ): Promise<PaginationResult<Chunk>> {
     return ctx.runQuery(this.component.chunks.list, {
       entryId: args.entryId,
       paginationOpts: args.paginationOpts,
       order: args.order ?? "asc",
+      includeEmbeddings: args.includeEmbeddings,
     });
   }
 

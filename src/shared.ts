@@ -150,6 +150,7 @@ export const vChunk = v.object({
   state: vStatus,
   text: v.string(),
   metadata: v.optional(v.record(v.string(), v.any())),
+  embedding: v.optional(v.array(v.number())),
 });
 
 export type Chunk = Infer<typeof vChunk>;
