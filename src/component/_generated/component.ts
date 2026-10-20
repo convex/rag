@@ -44,6 +44,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
         "internal",
         {
           entryId: string;
+          includeEmbeddings?: boolean;
           order: "desc" | "asc";
           paginationOpts: {
             cursor: string | null;
@@ -58,6 +59,7 @@ export type ComponentApi<Name extends string | undefined = string | undefined> =
           continueCursor: string;
           isDone: boolean;
           page: Array<{
+            embedding?: Array<number>;
             metadata?: Record<string, any>;
             order: number;
             state: "pending" | "ready" | "replaced";

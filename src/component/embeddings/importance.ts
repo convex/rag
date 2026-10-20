@@ -54,6 +54,17 @@ function normalizeVector(vector: number[]) {
     : vector.map((v) => v / magnitude);
 }
 
+/** Recover the embedding direction, without the stored importance weight. */
+export function embeddingFromVector(vector: number[], dimension: number) {
+  const embedding = normalizeVector(vector.slice(0, -1));
+  // Storage discards this coordinate to leave room for importance.
+  if (dimension === 4096) {
+    embedding.push(0);
+  }
+  // Zero importance erases the direction, so these embeddings remain all zeros.
+  return embedding;
+}
+
 function scaleVector(vector: number[], scale: number) {
   return vector.map((v) => v * scale);
 }
