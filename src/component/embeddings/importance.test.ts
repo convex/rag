@@ -5,9 +5,37 @@ import {
   modifyImportance,
   getImportance,
   vectorWithImportanceDimension,
+  embeddingFromVector,
 } from "./importance.js";
 
 describe("importance.ts", () => {
+  describe("embeddingFromVector", () => {
+    it.each([128, 4096])(
+      "preserves reusable vectors of dimension %i",
+      (dimension) => {
+        const embedding = Array.from({ length: dimension }, (_, i) => i + 1);
+        for (const importance of [0, 0.5, 1]) {
+          const stored = vectorWithImportance(embedding, importance);
+          const recovered = embeddingFromVector(stored, dimension);
+          expect(recovered).toHaveLength(dimension);
+          expect(recovered.every(Number.isFinite)).toBe(true);
+          if (importance === 0) {
+            expect(recovered.every((value) => value === 0)).toBe(true);
+          } else {
+            expect(
+              recovered.reduce((sum, value) => sum + value ** 2, 0),
+            ).toBeCloseTo(1);
+          }
+          if (dimension === 4096) {
+            expect(recovered[4095]).toBe(0);
+          }
+          const copied = vectorWithImportance(recovered, importance);
+          copied.forEach((value, i) => expect(value).toBeCloseTo(stored[i]));
+        }
+      },
+    );
+  });
+
   describe("searchVector", () => {
     it("should add a 0 to the end of a normal embedding", () => {
       const embedding = [0.1, 0.2, 0.3, 0.4];

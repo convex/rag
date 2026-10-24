@@ -193,6 +193,76 @@ describe("RAG thick client", () => {
     // expect(result).toBe(1);
   });
 
+  test("reuses listed embeddings for search and copying without embedding calls", async () => {
+    const t = createTest();
+    const { entryId } = await t.mutation(api.fns.add, {
+      key: "template",
+      namespace: "templates",
+      importance: 0.25,
+      chunks: [
+        {
+          text: "A",
+          metadata: { source: "template" },
+          embedding: dummyEmbeddings("A"),
+        },
+        { text: "B", metadata: {}, embedding: dummyEmbeddings("B") },
+      ],
+    });
+    const { page } = await t.run((ctx) =>
+      rag.listChunks(ctx, {
+        entryId,
+        paginationOpts: { numItems: 10, cursor: null },
+        includeEmbeddings: true,
+      }),
+    );
+    const chunks = page.map((chunk) => {
+      expect(chunk.embedding).toHaveLength(1536);
+      return {
+        text: chunk.text,
+        metadata: chunk.metadata ?? {},
+        embedding: chunk.embedding!,
+      };
+    });
+    const originalSearch = await t.action(api.fns.search, {
+      namespace: "templates",
+      embedding: dummyEmbeddings("A"),
+    });
+    const reusedSearch = await t.action(api.fns.search, {
+      namespace: "templates",
+      embedding: chunks[0].embedding,
+    });
+    expect(reusedSearch.usage).toEqual({ tokens: 0 });
+    expect(reusedSearch.results.map((result) => result.order)).toEqual(
+      originalSearch.results.map((result) => result.order),
+    );
+    reusedSearch.results.forEach((result, i) => {
+      expect(result.score).toBeCloseTo(originalSearch.results[i].score);
+    });
+    const copied = await t.mutation(api.fns.add, {
+      key: "copy",
+      namespace: "user",
+      importance: 0.75,
+      chunks,
+    });
+    expect(copied.status).toBe("ready");
+    expect(copied.usage).toEqual({ tokens: 0 });
+    const copiedSearch = await t.action(api.fns.search, {
+      namespace: "user",
+      embedding: dummyEmbeddings("A"),
+    });
+    expect(copiedSearch.results[0].entryId).toBe(copied.entryId);
+    expect(copiedSearch.results[0].score).toBeCloseTo(0.75);
+    const copiedChunks = await t.run((ctx) =>
+      rag.listChunks(ctx, {
+        entryId: copied.entryId,
+        paginationOpts: { numItems: 10, cursor: null },
+      }),
+    );
+    expect(
+      copiedChunks.page.map(({ text, metadata }) => ({ text, metadata })),
+    ).toEqual(chunks.map(({ text, metadata }) => ({ text, metadata })));
+  });
+
   test("should be able to re-add an entry with the same key", async () => {
     const t = createTest();
     const { entryId, status, usage } = await t.mutation(api.fns.add, {
