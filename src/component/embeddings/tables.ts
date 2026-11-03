@@ -1,7 +1,7 @@
 import { literals } from "convex-helpers/validators";
 import {
   defineTable,
-  GenericTableIndexes,
+  type GenericTableIndexes,
   type GenericTableSearchIndexes,
   type SchemaDefinition,
   type TableDefinition,
