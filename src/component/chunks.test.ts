@@ -417,6 +417,7 @@ describe("chunks", () => {
     expect(result.page[0].order).toBe(0);
     expect(result.page[0].text).toBe("Test chunk content 1");
     expect(result.page[0].state).toBe("ready");
+    expect(result.page[0]).not.toHaveProperty("embedding");
 
     expect(result.page[1].order).toBe(1);
     expect(result.page[1].text).toBe("Test chunk content 2");
@@ -435,6 +436,96 @@ describe("chunks", () => {
     expect(nextResult.isDone).toBe(true);
     expect(nextResult.page[0].order).toBe(3);
     expect(nextResult.page[1].order).toBe(4);
+  });
+
+  test("listing embeddings handles pagination and pending, ready, and replaced chunks", async () => {
+    const t = convexTest(schema, modules);
+    const namespaceId = await setupTestNamespace(t);
+    const entryId = await setupTestEntry(t, namespaceId);
+    const chunks = createTestChunks(3);
+    // Distinct, non-unit vectors make coordinate/order errors visible.
+    chunks.forEach((chunk, i) => {
+      chunk.embedding = Array(128).fill(0);
+      chunk.embedding[i] = 3;
+      chunk.embedding[i + 1] = 4;
+    });
+    await t.mutation(api.chunks.insert, { entryId, startOrder: 0, chunks });
+    const replacementId = await setupTestEntry(
+      t,
+      namespaceId,
+      "test-entry",
+      1,
+      "pending",
+    );
+    await t.mutation(api.chunks.insert, {
+      entryId: replacementId,
+      startOrder: 0,
+      chunks,
+    });
+    const pending = await t.query(api.chunks.list, {
+      entryId: replacementId,
+      order: "asc",
+      paginationOpts: { numItems: 10, cursor: null },
+      includeEmbeddings: true,
+    });
+    expect(pending.page.map((chunk) => chunk.state)).toEqual([
+      "pending",
+      "pending",
+      "pending",
+    ]);
+    expect(pending.page.map((chunk) => chunk.embedding)).toEqual(
+      chunks.map((chunk) => chunk.embedding),
+    );
+
+    await t.mutation(api.chunks.replaceChunksPage, {
+      entryId: replacementId,
+      startOrder: 0,
+    });
+    for (const [id, state] of [
+      [entryId, "replaced"],
+      [replacementId, "ready"],
+    ] as const) {
+      const first = await t.query(api.chunks.list, {
+        entryId: id,
+        order: "desc",
+        paginationOpts: { numItems: 2, cursor: null },
+        includeEmbeddings: true,
+      });
+      expect(first.isDone).toBe(false);
+      const second = await t.query(api.chunks.list, {
+        entryId: id,
+        order: "desc",
+        paginationOpts: { numItems: 2, cursor: first.continueCursor },
+        includeEmbeddings: true,
+      });
+      expect(second.isDone).toBe(true);
+      const page = [...first.page, ...second.page];
+      expect(page.map((chunk) => chunk.order)).toEqual([2, 1, 0]);
+      for (const chunk of page) {
+        expect(chunk.state).toBe(state);
+        expect(chunk.text).toBe(chunks[chunk.order].content.text);
+        expect(chunk.metadata).toEqual(chunks[chunk.order].content.metadata);
+        expect(chunk.embedding).toEqual(
+          chunks[chunk.order].embedding.map((value) => value / 5),
+        );
+      }
+    }
+    const without = await t.query(api.chunks.list, {
+      entryId,
+      order: "asc",
+      paginationOpts: { numItems: 10, cursor: null },
+      includeEmbeddings: false,
+    });
+    expect(without.page.every((chunk) => !("embedding" in chunk))).toBe(true);
+    const emptyId = await setupTestEntry(t, namespaceId, "empty");
+    const empty = await t.query(api.chunks.list, {
+      entryId: emptyId,
+      order: "asc",
+      paginationOpts: { numItems: 10, cursor: null },
+      includeEmbeddings: true,
+    });
+    expect(empty.page).toEqual([]);
+    expect(empty.isDone).toBe(true);
   });
 
   describe("getRangesOfChunks", () => {

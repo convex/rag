@@ -1,6 +1,6 @@
 import { assert } from "convex-helpers";
 import { mergedStream, stream } from "convex-helpers/server/stream";
-import { paginationOptsValidator } from "convex/server";
+import { paginationOptsValidator, type PaginationResult } from "convex/server";
 import { getConvexSize, type Infer } from "convex/values";
 import {
   statuses,
@@ -9,6 +9,7 @@ import {
   vEntry,
   vPaginationResult,
   vStatus,
+  type Chunk,
   type Entry,
 } from "../shared.js";
 import type { Doc, Id } from "./_generated/dataModel.js";
@@ -21,6 +22,7 @@ import {
   type QueryCtx,
 } from "./_generated/server.js";
 import { insertEmbedding } from "./embeddings/index.js";
+import { embeddingFromVector } from "./embeddings/importance.js";
 import {
   getVectorTableName,
   validateVectorDimension,
@@ -469,27 +471,62 @@ export const list = query({
     entryId: v.id("entries"),
     paginationOpts: paginationOptsValidator,
     order: v.union(v.literal("desc"), v.literal("asc")),
+    includeEmbeddings: v.optional(v.boolean()),
   }),
   returns: vPaginationResult(vChunk),
-  handler: async (ctx, args) => {
+  handler: async (ctx, args): Promise<PaginationResult<Chunk>> => {
     const { entryId, paginationOpts } = args;
     const chunks = await ctx.db
       .query("chunks")
       .withIndex("entryId_order", (q) => q.eq("entryId", entryId))
       .order(args.order)
       .paginate(paginationOpts);
+    const namespace =
+      args.includeEmbeddings && chunks.page.length > 0
+        ? await ctx.db.get("namespaces", chunks.page[0].namespaceId)
+        : null;
     return {
       ...chunks,
       page: await Promise.all(
         chunks.page.map(async (chunk) => {
           const content = await ctx.db.get("content", chunk.contentId);
           assert(content, `Content ${chunk.contentId} not found`);
-          return publicChunk(chunk, content);
+          const result = await publicChunk(chunk, content);
+          if (!args.includeEmbeddings) {
+            return result;
+          }
+          assert(namespace, `Namespace ${chunk.namespaceId} not found`);
+          return {
+            ...result,
+            embedding: await getChunkEmbedding(ctx, chunk, namespace.dimension),
+          };
         }),
       ),
     };
   },
 });
+
+async function getChunkEmbedding(
+  ctx: QueryCtx,
+  chunk: Doc<"chunks">,
+  dimension: number,
+) {
+  if (chunk.state.kind === "pending") {
+    return chunk.state.embedding;
+  }
+  let vector: number[];
+  if (chunk.state.kind === "replaced") {
+    vector = chunk.state.vector;
+  } else {
+    const stored = await ctx.db.get(
+      getVectorTableName(validateVectorDimension(dimension)),
+      chunk.state.embeddingId,
+    );
+    assert(stored, `Vector ${chunk.state.embeddingId} not found`);
+    vector = stored.vector;
+  }
+  return embeddingFromVector(vector, dimension);
+}
 
 // export async function findLastChunk(
 //   ctx: MutationCtx,

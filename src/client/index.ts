@@ -129,6 +129,11 @@ export class RAG<
    * If you don't provide a key, it will always create a new entry.
    * If you provide a contentHash, it will deduplicate the entry if it already exists.
    * The filterValues you provide can be used later to search for it.
+   *
+   * Use an action for large entries or when embeddings need to be generated.
+   * With an action context, each batch runs in a separate transaction. A mutation
+   * context is supported for small, pre-embedded entries, but all nested reads
+   * and writes share the enclosing transaction's limits, even with an iterator.
    */
   async add(
     ctx: CtxWith<"runMutation">,
@@ -740,12 +745,23 @@ export class RAG<
       paginationOpts: PaginationOptions;
       entryId: EntryId;
       order?: "desc" | "asc";
+      /**
+       * Include embeddings for reuse with `search` or `add` using the same
+       * embedding model and dimension. Defaults to false.
+       * Stored embeddings are normalized with importance weighting removed.
+       * Zero-importance embeddings are all zeros; for 4096 dimensions, the
+       * discarded last coordinate is returned as zero. Pending chunks return
+       * their original embeddings.
+       * Use smaller pages when including these additional reads and bytes.
+       */
+      includeEmbeddings?: boolean;
     },
   ): Promise<PaginationResult<Chunk>> {
     return ctx.runQuery(this.component.chunks.list, {
       entryId: args.entryId,
       paginationOpts: args.paginationOpts,
       order: args.order ?? "asc",
+      includeEmbeddings: args.includeEmbeddings,
     });
   }
 

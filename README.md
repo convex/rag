@@ -410,6 +410,73 @@ const chunksWithEmbeddings = await Promise.all(
 await rag.add(ctx, { namespace: "global", chunks });
 ```
 
+### Reusing stored embeddings
+
+Pass `includeEmbeddings: true` to `rag.listChunks` to include an `embedding` on
+each chunk. You can use it as the `query` in `rag.search`, or pass the chunks to
+`rag.add` to copy content into another namespace without embedding it again. Use
+the same embedding model and dimension for the source and destination.
+
+```ts
+// Inside an action:
+const { page } = await rag.listChunks(ctx, {
+  entryId,
+  paginationOpts: { numItems: 1, cursor: null },
+  includeEmbeddings: true,
+});
+const embedding = page[0]?.embedding;
+if (embedding) {
+  const results = await rag.search(ctx, {
+    namespace: "global",
+    query: embedding,
+  });
+}
+```
+
+Run the paginated copy in an **action** so each page read and insertion batch
+gets a separate transaction budget. `rag.add` also accepts a mutation context
+for small, pre-embedded entries, but its nested calls then share the enclosing
+mutation's read and write limits. An async iterator alone does not avoid those
+limits. A single copy still needs to finish within the action runtime limit.
+
+```ts
+import { internalAction } from "./_generated/server.js";
+import { vEntryId } from "@convex-dev/rag";
+
+export const copyEntry = internalAction({
+  args: { entryId: vEntryId },
+  handler: async (ctx, { entryId }) => {
+    // Copy all pages, preserving chunk order and metadata.
+    async function* storedChunks() {
+      let cursor: string | null = null;
+      while (true) {
+        const result = await rag.listChunks(ctx, {
+          entryId,
+          paginationOpts: { numItems: 50, cursor },
+          includeEmbeddings: true,
+        });
+        yield* result.page;
+        if (result.isDone) break;
+        cursor = result.continueCursor;
+      }
+    }
+    return await rag.add(ctx, {
+      namespace: "user",
+      chunks: storedChunks(),
+    });
+  },
+});
+```
+
+Embeddings are omitted by default. Including them adds vector reads and response
+bytes, so use smaller pages for large dimensions. Stored embeddings are returned
+normalized, with importance weighting removed, rather than as an exact copy of
+the provider's output. Zero-importance entries have lost their vector direction
+and return zeros. For 4096-dimensional embeddings, storage discards the last
+coordinate; it is returned as zero. Pending chunks return their original
+embeddings. Entry metadata, filters, and importance can be supplied separately
+when copying; they are not part of the chunk list.
+
 ## Add Entries Asynchronously using File Storage
 
 For large files, you can upload them to file storage, then provide a chunker
