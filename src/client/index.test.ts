@@ -1,7 +1,11 @@
 import { describe, expect, test } from "vitest";
-import { RAG } from "./index.js";
+import { RAG, vEntryId, type EntryId } from "./index.js";
 import { v } from "convex/values";
-import { defineSchema } from "convex/server";
+import {
+  defineSchema,
+  type GenericActionCtx,
+  type GenericDataModel,
+} from "convex/server";
 import { defineTestApp } from "convex-test";
 import componentTest from "../test.js";
 import { openai } from "@ai-sdk/openai";
@@ -136,12 +140,64 @@ const generate = app.action({
   },
 });
 
+const seedLargeEntry = app.action({
+  args: { count: v.number() },
+  handler: async (ctx, { count }) => {
+    function* chunks() {
+      for (let i = 0; i < count; i++) {
+        yield {
+          text: `Chunk ${i}`,
+          metadata: { index: i },
+          embedding: dummyEmbeddings("A"),
+        };
+      }
+    }
+    return rag.add(ctx, { namespace: "large-source", chunks: chunks() });
+  },
+});
+
+async function copyStoredEntry(
+  ctx: Pick<GenericActionCtx<GenericDataModel>, "runQuery" | "runMutation">,
+  { entryId, namespace }: { entryId: EntryId; namespace: string },
+) {
+  let pagesRead = 0;
+  async function* storedChunks() {
+    let cursor: string | null = null;
+    while (true) {
+      const result = await rag.listChunks(ctx, {
+        entryId,
+        paginationOpts: { numItems: 50, cursor },
+        includeEmbeddings: true,
+      });
+      pagesRead++;
+      yield* result.page;
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+  }
+  const result = await rag.add(ctx, { namespace, chunks: storedChunks() });
+  return { ...result, pagesRead };
+}
+
+const copyEntryArgs = { entryId: vEntryId, namespace: v.string() };
+const copyEntryAction = app.action({
+  args: copyEntryArgs,
+  handler: copyStoredEntry,
+});
+const copyEntryMutation = app.mutation({
+  args: copyEntryArgs,
+  handler: copyStoredEntry,
+});
+
 const { api, createTest } = app.defineModules({
   fns: {
     findEntryByContentHash,
     add,
     search,
     generate,
+    seedLargeEntry,
+    copyEntryAction,
+    copyEntryMutation,
   },
 });
 
@@ -152,6 +208,64 @@ function dummyEmbeddings(text: string) {
 }
 
 describe("RAG thick client", () => {
+  test("large paginated copies require an action to stay within transaction limits", async () => {
+    const t = createTest({ transactionLimits: true });
+    // The embedding coordinates alone exceed the default 16 MiB transaction
+    // budget. Use enough chunks for multiple read pages and insertion batches,
+    // including a partial final page/batch.
+    const count = 1501;
+    expect(count * 1536 * 8).toBeGreaterThan(16 * 1024 * 1024);
+    const source = await t.action(api.fns.seedLargeEntry, { count });
+    expect(source.status).toBe("ready");
+    expect(source.usage).toEqual({ tokens: 0 });
+
+    await expect(
+      t.mutation(api.fns.copyEntryMutation, {
+        entryId: source.entryId,
+        namespace: "mutation-copy",
+      }),
+    ).rejects.toThrow(/Read too much data in a single function execution/);
+
+    const copied = await t.action(api.fns.copyEntryAction, {
+      entryId: source.entryId,
+      namespace: "action-copy",
+    });
+    expect(copied.status).toBe("ready");
+    expect(copied.usage).toEqual({ tokens: 0 });
+    expect(copied.pagesRead).toBe(Math.ceil(count / 50));
+
+    let cursor: string | null = null;
+    let chunksRead = 0;
+    const original = dummyEmbeddings("A");
+    const magnitude = Math.sqrt(
+      original.reduce((sum, value) => sum + value ** 2, 0),
+    );
+    while (true) {
+      const result: Awaited<ReturnType<typeof rag.listChunks>> = await t.query(
+        app.components.rag.chunks.list,
+        {
+          entryId: copied.entryId,
+          order: "asc",
+          paginationOpts: { numItems: 50, cursor },
+          includeEmbeddings: true,
+        },
+      );
+      for (const chunk of result.page) {
+        expect(chunk.order).toBe(chunksRead);
+        expect(chunk.text).toBe(`Chunk ${chunksRead}`);
+        expect(chunk.metadata).toEqual({ index: chunksRead });
+        expect(chunk.state).toBe("ready");
+        expect(chunk.embedding).toHaveLength(1536);
+        expect(chunk.embedding![0]).toBeCloseTo(original[0] / magnitude);
+        expect(chunk.embedding![1535]).toBeCloseTo(original[1535] / magnitude);
+        chunksRead++;
+      }
+      if (result.isDone) break;
+      cursor = result.continueCursor;
+    }
+    expect(chunksRead).toBe(count);
+  }, 30_000);
+
   test("should add a entry and be able to list it", async () => {
     const t = createTest();
     const { entryId, status, usage } = await t.mutation(api.fns.add, {

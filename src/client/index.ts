@@ -129,6 +129,11 @@ export class RAG<
    * If you don't provide a key, it will always create a new entry.
    * If you provide a contentHash, it will deduplicate the entry if it already exists.
    * The filterValues you provide can be used later to search for it.
+   *
+   * Use an action for large entries or when embeddings need to be generated.
+   * With an action context, each batch runs in a separate transaction. A mutation
+   * context is supported for small, pre-embedded entries, but all nested reads
+   * and writes share the enclosing transaction's limits, even with an iterator.
    */
   async add(
     ctx: CtxWith<"runMutation">,

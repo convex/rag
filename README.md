@@ -418,6 +418,7 @@ each chunk. You can use it as the `query` in `rag.search`, or pass the chunks to
 the same embedding model and dimension for the source and destination.
 
 ```ts
+// Inside an action:
 const { page } = await rag.listChunks(ctx, {
   entryId,
   paginationOpts: { numItems: 1, cursor: null },
@@ -430,22 +431,41 @@ if (embedding) {
     query: embedding,
   });
 }
+```
 
-// Copy all pages, preserving chunk order and metadata.
-async function* storedChunks() {
-  let cursor: string | null = null;
-  while (true) {
-    const result = await rag.listChunks(ctx, {
-      entryId,
-      paginationOpts: { numItems: 50, cursor },
-      includeEmbeddings: true,
+Run the paginated copy in an **action** so each page read and insertion batch
+gets a separate transaction budget. `rag.add` also accepts a mutation context
+for small, pre-embedded entries, but its nested calls then share the enclosing
+mutation's read and write limits. An async iterator alone does not avoid those
+limits. A single copy still needs to finish within the action runtime limit.
+
+```ts
+import { internalAction } from "./_generated/server.js";
+import { vEntryId } from "@convex-dev/rag";
+
+export const copyEntry = internalAction({
+  args: { entryId: vEntryId },
+  handler: async (ctx, { entryId }) => {
+    // Copy all pages, preserving chunk order and metadata.
+    async function* storedChunks() {
+      let cursor: string | null = null;
+      while (true) {
+        const result = await rag.listChunks(ctx, {
+          entryId,
+          paginationOpts: { numItems: 50, cursor },
+          includeEmbeddings: true,
+        });
+        yield* result.page;
+        if (result.isDone) break;
+        cursor = result.continueCursor;
+      }
+    }
+    return await rag.add(ctx, {
+      namespace: "user",
+      chunks: storedChunks(),
     });
-    yield* result.page;
-    if (result.isDone) break;
-    cursor = result.continueCursor;
-  }
-}
-await rag.add(ctx, { namespace: "user", chunks: storedChunks() });
+  },
+});
 ```
 
 Embeddings are omitted by default. Including them adds vector reads and response
