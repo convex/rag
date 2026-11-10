@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.7.9
+
+### Patch Changes
+
+- f1e7ff1: Use Convex's built-in pagination for `rag.listChunks` and the
+  component's `namespaces.list` query (#115). Cursors returned by these
+  operations now use Convex's opaque format, so previously saved cursors cannot
+  be reused. Queries that call them must respect Convex's
+  one-pagination-per-query limit. `rag.list` is unchanged.
+- f1e7ff1: Allow `rag.listChunks` to return stored embeddings when
+  `includeEmbeddings: true` is passed (#117). The option defaults to false;
+  returned embeddings can be reused for search or copying chunks without calling
+  the embedding provider again.
+- f1e7ff1: Import `GenericTableIndexes` as a type to avoid a runtime import of
+  this type-only Convex export (#120).
+
 ## 0.7.8
 
 - Updates the /test entrypoint for compatibility with convex-test's new
