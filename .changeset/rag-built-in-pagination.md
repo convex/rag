@@ -1,5 +1,5 @@
 ---
-"@convex-dev/rag": minor
+"@convex-dev/rag": patch
 ---
 
 Use Convex's built-in pagination for `namespaces.list` and `chunks.list` (#115).

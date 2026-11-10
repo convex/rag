@@ -1,5 +1,5 @@
 ---
-"@convex-dev/rag": minor
+"@convex-dev/rag": patch
 ---
 
 Allow `rag.listChunks` to return stored embeddings when
