@@ -36,6 +36,7 @@
     "lint": "eslint .",
     "check:circular": "madge src/component/ --extensions ts --exclude api.ts --circular",
     "check": "npm run test && npm run typecheck && npm run lint && npm run check:circular",
+    "version:ci": "changeset version && npm install --package-lock-only --ignore-scripts --no-audit --no-fund",
     "test": "vitest run --typecheck",
     "test:e2e": "convex dev --once --typecheck-components",
     "test:watch": "vitest --typecheck --clearScreen false",
