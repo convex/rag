@@ -70,11 +70,11 @@
     }
   },
   "dependencies": {
-    "@convex-dev/workpool": "^0.4.4 || ^0.5.0"
+    "@convex-dev/workpool": "^0.5.0"
   },
   "peerDependencies": {
     "ai": "^7.0.0",
-    "convex": "^1.46.0",
+    "convex": "^1.47.0",
     "convex-helpers": "^0.1.127"
   },
   "devDependencies": {
