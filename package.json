@@ -70,7 +70,7 @@
     }
   },
   "dependencies": {
-    "@convex-dev/workpool": "^0.4.4"
+    "@convex-dev/workpool": "^0.4.4 || ^0.5.0"
   },
   "peerDependencies": {
     "ai": "^7.0.0",
@@ -83,7 +83,7 @@
     "@changesets/changelog-github": "1.0.1",
     "@changesets/cli": "3.0.3",
     "@convex-dev/eslint-plugin": "^5.0.0",
-    "@convex-dev/workpool": "0.4.6",
+    "@convex-dev/workpool": "0.5.0",
     "@edge-runtime/vm": "5.0.0",
     "@eslint/eslintrc": "3.3.3",
     "@eslint/js": "9.39.2",
@@ -100,7 +100,7 @@
     "ai": "7.0.43",
     "autoprefixer": "10.4.24",
     "chokidar-cli": "3.0.0",
-    "convex": "1.46.0",
+    "convex": "1.47.0",
     "convex-helpers": "0.1.127",
     "convex-test": "0.0.64",
     "eslint": "9.39.2",
